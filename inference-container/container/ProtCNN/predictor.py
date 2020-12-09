@@ -5,6 +5,7 @@ import boto3
 from io import StringIO
 import flask
 import pandas as pd
+import numpy as np
 from ProtCNN import ProtCNN
 import utility_methods as um
 
@@ -32,6 +33,11 @@ manager = tf.train.CheckpointManager(checkpoint, directory=checkpoint_dir, max_t
 status = checkpoint.restore(manager.latest_checkpoint)
 print("Done restoring model...")
 
+# 
+unique_families = pd.read_csv("./unique_families.csv")
+family_accessions = list(unique_families["family_accession"])
+family_ids = list(unique_families["family_id"])
+    
 @app.route('/ping', methods=['GET'])
 def ping():
     status = 200
@@ -40,15 +46,21 @@ def ping():
 @app.route('/invocations', methods=['POST'])
 def transformation():
     data = None
+    data_list = []
     if flask.request.content_type == 'text/csv':
         # Decode request
         data = flask.request.data.decode('utf-8')
         
-        # Loop over input sequences and convert them to IDs
-        data_list = []
-        for element in data.split("\r\n")[:-1]:
-            temp = um.sequence_to_ID(element)
+        if len(data.split("\r\n")[:-1]) == 0:
+            temp = um.sequence_to_ID(data.strip())
             data_list.append(temp)
+            
+        else:
+            # Loop over input sequences and convert them to IDs
+
+            for element in data.split("\r\n")[:-1]:
+                temp = um.sequence_to_ID(element)
+                data_list.append(temp)
     else:
         return flask.Response(response='This predictor only supports CSV data', status=415, mimetype='text/plain')
     
@@ -62,10 +74,14 @@ def transformation():
     predictions = prot_cnn(data_array, training=False)
     predictions = predictions.numpy()
     
+    indices, confidences = np.argmax(predictions, axis=1), np.amax(predictions, axis=1)
+    
     # Store each prediction in a dictionary
     dic = {}
-    for i in range(predictions.shape[0]):
-        dic[i] = list(predictions[i])
+    for index, confidence, i in zip(indices, confidences, range(predictions.shape[0])):
+        predicted_fam_acc = family_accessions[index]
+        predicted_fam_id = family_ids[index]
+        dic[i] = (predicted_fam_acc, predicted_fam_id, confidence)
     
     out = StringIO()
     pd.DataFrame({'results':dic}).to_csv(out, header=False, index=False)
