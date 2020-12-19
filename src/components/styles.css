@@ -1,0 +1,70 @@
+.App {
+  text-align: center;
+}
+
+.button {
+  background-color: #FFA500; /* Orange */
+  border: none;
+  color: white;
+  padding: 5px 24px;
+  text-align: center;
+  text-decoration: none;
+  display: inline-block;
+  font-size: 10px;
+  margin: 4px 2px;
+  cursor: pointer;
+}
+
+.heading { 
+  color: #FFA500;
+  text-align: center;
+  
+}
+
+.p {
+  text-align: center;
+  padding: 2px 20px;
+  
+}
+
+.table {
+  margin-left: auto;
+  margin-right: auto;
+  text-align: center;
+  
+}
+
+.limit-length{
+  max-width: 500px;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+.question {
+  font-weight: bold;
+  text-align: left;
+  padding: 2px 24px;
+}
+
+.answer {
+  font-weight: normal;
+  text-align: left;
+  padding: 2px 0px 10px 24px;
+}
+
+.ol-class {
+  text-align: center;
+  list-style-position: inside;
+}
+
+.family-accession {
+  font-weight: bold;
+  text-align: center;
+  padding: 2px 24px;
+}
+
+.description {
+  font-weight: normal;
+  text-align: center;
+  padding: 2px 0px 10px 24px;
+}
