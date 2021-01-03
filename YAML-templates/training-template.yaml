@@ -1,0 +1,265 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Protein Annotation Training Resources
+Parameters:
+    RawDataS3BucketName:
+        Type: String
+        Default: cloud-formation-raw-data
+        Description: Name of S3 bucket for raw data. It defaults to CloudFormation-raw-data.
+    
+    ProcessedDataS3BucketName:
+        Type: String
+        Default: cloud-formation-processed-data
+        Description: Name of S3 bucket for processed data. It defaults to CloudFormation-processed-data.
+        
+    NotebookName:
+        Type: String
+        Default: CloudFormation-Notebook
+        Description: Name of SageMaker notebook instance. It defaults to CloudFormation-Notebook.
+        
+    GlueDevName:
+        Type: String
+        Default: CloudFormation-GlueDevEndpoint
+        Description: Name of Glue Dev endpoint. It defaults to CloudFormation-GlueDevEndpoint.
+        
+Resources:
+    # Amazon S3
+    RawDataBucket:
+        Type: AWS::S3::Bucket
+        Properties:
+            BucketName: !Ref RawDataS3BucketName
+            
+    ProcessedDataBucket:
+        Type: AWS::S3::Bucket
+        Properties:
+            BucketName: !Ref ProcessedDataS3BucketName
+    
+    # Amazon VPC and its components
+    VPC:
+        Type: AWS::EC2::VPC
+        Properties:
+            CidrBlock: 10.1.0.0/16
+            EnableDnsHostnames: true
+            Tags:
+                - Key: Name
+                  Value: !Sub ${AWS::StackName}-Protein-Annotation-VPC
+    PublicSubnet:
+        Type: AWS::EC2::Subnet
+        Properties:
+            VpcId: !Ref 'VPC'
+            CidrBlock: 10.1.0.0/24
+            MapPublicIpOnLaunch: true
+            AvailabilityZone: 
+                Fn::Select: 
+                    - 0
+                    - Fn::GetAZs: ""
+            Tags:
+                - Key: Name
+                  Value: !Sub ${AWS::StackName}-Protein-Annotation-subnet
+    InternetGateway:
+        Type: AWS::EC2::InternetGateway
+        Properties:
+            Tags:
+                - Key: Name
+                  Value: !Sub ${AWS::StackName}-Protein-Annotation-IGW
+    AttachGateway:
+        Type: AWS::EC2::VPCGatewayAttachment
+        Properties:
+            VpcId: !Ref 'VPC'
+            InternetGatewayId: !Ref 'InternetGateway'
+    RouteTable:
+        Type: AWS::EC2::RouteTable
+        Properties:
+            VpcId: !Ref 'VPC'
+            Tags:
+                - Key: Name
+                  Value: !Sub ${AWS::StackName}-Protein-Annotation-rtb
+    Route:
+        Type: AWS::EC2::Route
+        DependsOn: AttachGateway
+        Properties:
+            RouteTableId: !Ref 'RouteTable'
+            DestinationCidrBlock: 0.0.0.0/0
+            GatewayId: !Ref 'InternetGateway'
+    SubnetRouteTableAssociation:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties:
+            SubnetId: !Ref 'PublicSubnet'
+            RouteTableId: !Ref 'RouteTable'
+    NetworkAcl:
+        Type: AWS::EC2::NetworkAcl
+        Properties:
+            VpcId: !Ref 'VPC'
+            Tags:
+                - Key: Name
+                  Value: !Sub ${AWS::StackName}-Protein-Annotation-NACL
+    InboundHTTPNetworkAclEntry:
+        Type: AWS::EC2::NetworkAclEntry
+        Properties:
+            NetworkAclId: !Ref 'NetworkAcl'
+            RuleNumber: '100'
+            Protocol: '-1'
+            RuleAction: allow
+            Egress: 'false'
+            CidrBlock: 0.0.0.0/0
+    OutboundHTTPNetworkAclEntry:
+        Type: AWS::EC2::NetworkAclEntry
+        Properties:
+            NetworkAclId: !Ref 'NetworkAcl'
+            RuleNumber: '100'
+            Protocol: '-1'
+            RuleAction: allow
+            Egress: 'true'
+            CidrBlock: 0.0.0.0/0
+    PublicSubnetNetworkAclAssociation:
+        Type: AWS::EC2::SubnetNetworkAclAssociation
+        Properties:
+            SubnetId: !Ref 'PublicSubnet'
+            NetworkAclId: !Ref 'NetworkAcl'
+    GlueSGIngress:
+        Type: AWS::EC2::SecurityGroupIngress
+        DependsOn: SecurityGroup
+        Properties:
+            GroupId: !Ref SecurityGroup
+            IpProtocol: -1
+            FromPort: -1
+            ToPort: -1
+            SourceSecurityGroupId: !Ref SecurityGroup
+    SecurityGroup:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+            GroupName: !Sub ${AWS::StackName}-Protein-Annotation-Glue-SG
+            VpcId: !Ref VPC
+            GroupDescription: Enable SSH access via port 22
+            SecurityGroupIngress:
+                - IpProtocol: tcp
+                  FromPort: '22'
+                  ToPort: '22'
+                  CidrIp: '0.0.0.0/0'
+                - IpProtocol: tcp
+                  FromPort: '80'
+                  ToPort: '80'
+                  CidrIp: 0.0.0.0/0
+                - IpProtocol: tcp
+                  FromPort: '443'
+                  ToPort: '443'
+                  CidrIp: 0.0.0.0/0
+    S3Endpoint:
+        Type: AWS::EC2::VPCEndpoint
+        Properties:
+            PolicyDocument:
+                Version: 2012-10-17
+                Statement:
+                    - Effect: Allow
+                      Principal: '*'
+                      Action:
+                        - '*'
+                      Resource:
+                        - '*'
+            RouteTableIds:
+                - !Ref RouteTable
+            ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+            VpcId: !Ref VPC
+    
+    # Amazon SageMaker and its components
+    NotebookRole:
+        Type: AWS::IAM::Role
+        Properties:
+            RoleName: !Sub ${AWS::StackName}-NotebookRole
+            ManagedPolicyArns:
+                - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryFullAccess
+                - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+            AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                    - Effect: Allow
+                      Principal:
+                        Service: sagemaker.amazonaws.com
+                      Action: sts:AssumeRole
+    NotebookRolePolicy:
+        Type: AWS::IAM::ManagedPolicy
+        Properties:
+            ManagedPolicyName: !Sub ${AWS::StackName}-ProteinAnnotationNotebookPolicy
+            PolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                    - Effect: Allow
+                      Action:
+                        - "s3:GetObject"
+                        - "s3:PutObject"
+                        - "s3:DeleteObject"
+                        - "s3:ListBucket"
+                      Resource:
+                        - "arn:aws:s3:::*"
+            Roles:
+                - !Ref 'NotebookRole'
+                
+    SageMakerNoteBook:
+        Type: AWS::SageMaker::NotebookInstance
+        Properties: 
+            DirectInternetAccess: "Enabled"
+            InstanceType: "ml.m5.4xlarge"
+            NotebookInstanceName: !Ref NotebookName
+            RoleArn: !GetAtt NotebookRole.Arn
+            RootAccess: "Enabled"
+            SecurityGroupIds: 
+                - !Ref SecurityGroup
+            SubnetId: !Ref PublicSubnet
+            VolumeSizeInGB: 250
+    
+    # AWS Glue and its components
+    GlueDevServiceRole:
+        Type: AWS::IAM::Role
+        Properties:
+            RoleName: !Sub ${AWS::StackName}-GlueDevServiceRole
+            ManagedPolicyArns:
+                - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+                - arn:aws:iam::aws:policy/AWSGlueConsoleSageMakerNotebookFullAccess
+                - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM
+            AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                    - Effect: Allow
+                      Principal:
+                        Service: ec2.amazonaws.com
+                      Action: sts:AssumeRole
+                    - Effect: Allow
+                      Principal:
+                        Service: glue.amazonaws.com
+                      Action: sts:AssumeRole
+                    - Effect: Allow
+                      Principal:
+                        Service: sagemaker.amazonaws.com
+                      Action: sts:AssumeRole
+                      
+    GlueDevRolePolicy:
+        Type: AWS::IAM::ManagedPolicy
+        Properties:
+            ManagedPolicyName: 'ProteinAnnotationGlueDevEndpointPolicy'
+            PolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                    - Effect: Allow
+                      Action:
+                        - 's3:*'
+                        - 'DescribeSubnets:*'
+                        - 'logs:*'
+                      Resource:
+                        - '*'
+            Roles:
+                - !Ref 'GlueDevServiceRole'
+                
+    GlueDevEndpoint:
+        Type: AWS::Glue::DevEndpoint
+        Properties:
+            EndpointName: !Ref GlueDevName
+            PublicKey: 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCyQ19lVS4Td9LT66vTlIBxD4youu1fZJKnJP+k0aBMKZ3W2GPpq31VmPQEqJbfYPWPRRRagSiWlzvk/3Y3DSCnAhmU/XGla+JTkITTA6fmn1o9ymwyg0mrmdMHZK16yd9f++dfzJ5fdspd53N4a0KGJooST4YOXk4RanakelL3tjePqHFpg0uShgqeOaP9aaU9LpE39Q77TFWFfqfjve5HH33NEmBMphmnvHsOWcx7eydCPIN17xnClJDCf8GvELVB6ef2qGWipP7YaM0UTjlaiBV7Q5ciCfFnAf1FMykzYUnHK9tE5aTOI8XOst0syPEbhegPSxOhrDf5Y08gC7ut gillemi@9801a79dae39'
+            RoleArn: !GetAtt GlueDevServiceRole.Arn
+            SecurityGroupIds:
+                - !Ref SecurityGroup
+            SubnetId: !Ref PublicSubnet
+
+    NotebookProfile:
+        Type: "AWS::IAM::InstanceProfile"
+        Properties: 
+            Roles:
+                - !Ref GlueDevServiceRole 
