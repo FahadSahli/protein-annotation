@@ -4,12 +4,12 @@ Parameters:
     RawDataS3BucketName:
         Type: String
         Default: cloud-formation-raw-data
-        Description: Name of S3 bucket for raw data. It defaults to CloudFormation-raw-data.
+        Description: Name of S3 bucket for raw data. It defaults to cloud-formation-raw-data.
     
     ProcessedDataS3BucketName:
         Type: String
         Default: cloud-formation-processed-data
-        Description: Name of S3 bucket for processed data. It defaults to CloudFormation-processed-data.
+        Description: Name of S3 bucket for processed data. It defaults to cloud-formation-processed-data.
         
     NotebookName:
         Type: String
