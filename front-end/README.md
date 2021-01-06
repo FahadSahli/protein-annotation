@@ -1,5 +1,5 @@
 # Front End
-This folder includes all files needed to run the front end ReactJS application. As the YAML template does not host the application on AWS Amplify, you need to configure your environment. What you need is to run the following commands:
+This folder includes all files needed to run the front end ReactJS application. As the YAML template does not host the application on AWS Amplify, you need to configure your AWS Cloud9 environment. What you need is to run the following commands:
 <br> 
 <br> 
 npm install aws-amplify <br> 
