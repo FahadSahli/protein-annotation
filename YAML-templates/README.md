@@ -9,22 +9,22 @@ service-integration-template.yaml template integrates deployed model with other 
 5.	Under “Destination”, choose “Lambda function”, “Choose from your Lambda functions”, then pick the created function
 6.	Finally, click on “Save changes” button <br>
 Second, go to “Permissions”, “Cross-origin resource sharing (CORS)”, click on “Edit” button, and past the following: <br>
-[
-    {
-        "AllowedHeaders": [
-            "*"
-        ],
-        "AllowedMethods": [
-            "PUT",
-            "POST",
-            "DELETE"
-        ],
-        "AllowedOrigins": [
-            "*"
-        ],
-        "ExposeHeaders": []
-    }
-]
+[ <br>
+    { <br>
+        "AllowedHeaders": [ <br>
+            "*" <br>
+        ], <br>
+        "AllowedMethods": [ <br>
+            "PUT", <br>
+            "POST", <br>
+            "DELETE" <br>
+        ], <br>
+        "AllowedOrigins": [ <br>
+            "*" <br>
+        ], <br>
+        "ExposeHeaders": [] <br>
+    } <br>
+] <br>
 <br>
 Also, the template does not host the web application on AWS Amplify. As a result, you need to configure your AWS Cloud9 environment. The details can be found in protein-annotation/front-end/ReadMe.txt.
 
