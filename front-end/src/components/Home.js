@@ -25,7 +25,7 @@ class Home extends Component {
   }
   
   uploadFile = () => {
-    SetS3Config("intern-project-web-tier-uploads", "private");
+    SetS3Config("", "private", "");
     Storage.put(`${this.state.userID}/${this.upload.files[0].name}`,
                 this.upload.files[0],
                 { contentType: this.upload.files[0].type })
