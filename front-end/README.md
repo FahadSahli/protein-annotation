@@ -15,3 +15,8 @@ npm install react-router-dom <br>
 cd front-end <br> 
 npm install <br> 
 npm start <br> 
+
+<br> 
+<br> 
+
+Now, you have a working demo of Protein Annotation.
