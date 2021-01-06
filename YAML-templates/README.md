@@ -28,7 +28,7 @@ Second, go to “Permissions”, “Cross-origin resource sharing (CORS)”, cli
     }
 ]
 
-Also, the template does not host the web application on AWS Amplify. As a result, you need to configure your AWS Cloud9 environment. You need to edit some parameters in the front-end code based on the output from the template. The details can be found in protein-annotation/front-end/ReadMe.txt.
+Also, You need to edit some parameters in the front-end code based on the output from the template. The template does not host the web application on AWS Amplify. As a result, you need to configure your AWS Cloud9 environment. The details can be found in protein-annotation/front-end/ReadMe.txt.
 
 
 
