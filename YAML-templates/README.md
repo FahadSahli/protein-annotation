@@ -6,7 +6,7 @@ service-integration-template.yaml template integrates deployed model with other 
 1.	Go to the created Amazon S3 bucket’s “Properties”
 2.	Then, go to “Event notifications”, click on “Create event notification”
 3.	Choose a name for the event
-4.	Check the box next to “All object create events” under “Event types”
+4.	Check the box next to "Put" under “All object create events” under “Event types”
 5.	Under “Destination”, choose “Lambda function”, “Choose from your Lambda functions”, then pick the created function
 6.	Finally, click on “Save changes” button <br>
 <br>
