@@ -1,0 +1,571 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Protein Annotation Front End Resources
+
+Parameters:
+
+    DockerImage:
+        Type: String
+        Description: Inference Docker image. This parameter is required.
+
+    ModelArtifacts:
+        Type: String
+        Description: Model artifacts of trained ProtCNN. This parameter is required.
+        
+    InferenceEndpointName:
+        Type: String
+        Default: CloudFormation-InferenceModel
+        Description: Name of inference endpoint. It defaults to CloudFormation-InferenceModel.
+        
+    S3BucketName:
+        Type: String
+        Default: cloud-formation-user-uploads
+        Description: Name of user uploads S3 bucket. It defaults to cloud-formation-user-uploads. 
+        
+Resources:
+    # Amazon S3
+    UserUploadsBucket:
+        Type: AWS::S3::Bucket
+        Properties:
+            BucketName: !Ref S3BucketName
+            
+    SNSRole:
+        Type: AWS::IAM::Role
+        Description: "An IAM Role to allow Cognito to send SNS messages"
+        Properties:
+            RoleName: !Sub ${AWS::StackName}-cognito-sns-role
+            ManagedPolicyArns:
+                - Ref: CognitoSNSPolicy
+            AssumeRolePolicyDocument:
+                Version: 2012-10-17
+                Statement:
+                    - Effect: Allow
+                      Action:
+                        - sts:AssumeRole
+                      Principal:
+                        Service:
+                            - cognito-idp.amazonaws.com
+        DependsOn:
+            - CognitoSNSPolicy
+            
+    CognitoSNSPolicy:
+        Type: AWS::IAM::ManagedPolicy
+        Properties:
+            Description: Managed policy to allow Amazon Cognito to access SNS
+            PolicyDocument:
+                Version: 2012-10-17
+                Statement:
+                - Effect: Allow
+                  Action: sns:publish
+                  Resource: "*"
+                  
+    UserPool:
+        Type: "AWS::Cognito::UserPool"
+        Description: "A Cognito user pool for authenticating users"
+        Properties:
+            UserPoolName: !Sub ${AWS::StackName}-user-pool
+            AutoVerifiedAttributes:
+                - email
+            MfaConfiguration: "OFF"
+            Schema:
+                - Name: email
+                  AttributeDataType: String
+                  Mutable: false
+                  Required: true
+
+    UserPoolClient:
+        Type: "AWS::Cognito::UserPoolClient"
+        Description: "App Client used by AWS AppSync"
+        Properties:
+            ClientName: !Sub ${AWS::StackName}-appsync-client
+            GenerateSecret: false
+            UserPoolId: !Ref UserPool
+            
+    # IdentityPool
+    IdentityPool:
+        Type: "AWS::Cognito::IdentityPool"
+        Properties:
+            IdentityPoolName: !Sub ${AWS::StackName}-identity-pool
+            AllowUnauthenticatedIdentities: true
+            CognitoIdentityProviders: 
+                - ClientId: !Ref UserPoolClient
+                  ProviderName: !GetAtt UserPool.ProviderName
+                  
+    IdentityPoolRole:
+        Type: "AWS::IAM::Role"
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: "2012-10-17"
+                Statement:
+                    - Effect: "Allow"
+                      Principal: 
+                        Federated: "cognito-identity.amazonaws.com"
+                      Action: 
+                        - "sts:AssumeRoleWithWebIdentity"
+                      Condition:
+                        StringEquals: 
+                            "cognito-identity.amazonaws.com:aud": !Ref IdentityPool
+                        ForAnyValue:StringLike:
+                            "cognito-identity.amazonaws.com:amr": unauthenticated             
+            Policies:
+                - PolicyName: !Sub ${AWS::StackName}-CognitoIdentityPoolPolicy
+                  PolicyDocument: 
+                    Version: "2012-10-17"
+                    Statement: 
+                        - Effect: "Allow"
+                          Action:
+                            - "cognito-identity:*"
+                            - "mobileanalytics:PutEvents"
+                            - "cognito-sync:*"
+                          Resource: "*"
+                          
+                        - Effect: "Allow"
+                          Action:
+                            - "s3:PutObject"
+                          Resource: "*"
+  
+    IdentityPoolRoleMapping:
+        Type: "AWS::Cognito::IdentityPoolRoleAttachment"
+        Properties:
+            IdentityPoolId: !Ref IdentityPool
+            Roles:
+                authenticated: !GetAtt IdentityPoolRole.Arn
+                unauthenticated: !GetAtt IdentityPoolRole.Arn
+    
+    # DynamoDBTable
+    DynamoDBTable:
+        Type: "AWS::DynamoDB::Table"
+        Description: "Data store for AWS AppSync"
+        Properties:
+            TableName: !Sub ${AWS::StackName}-protein-annotation-table
+            AttributeDefinitions:
+                - AttributeName: "itemID"
+                  AttributeType: "S"
+            KeySchema:
+                - AttributeName: "itemID"
+                  KeyType: "HASH"
+            ProvisionedThroughput:
+                ReadCapacityUnits: 5
+                WriteCapacityUnits: 5
+                
+    DynamoDBRole:
+        Type: AWS::IAM::Role
+        Properties:
+            RoleName: !Sub ${AWS::StackName}-appsync-dynamodb-role
+            ManagedPolicyArns:
+                - Ref: AppSyncDynamoDBPolicy
+            AssumeRolePolicyDocument:
+                Version: 2012-10-17
+                Statement:
+                    - Effect: Allow
+                      Action:
+                        - sts:AssumeRole
+                      Principal:
+                        Service:
+                            - appsync.amazonaws.com
+        DependsOn:
+            - AppSyncDynamoDBPolicy
+            
+    AppSyncDynamoDBPolicy:
+        Type: AWS::IAM::ManagedPolicy
+        Properties:
+            Description: Managed policy to allow AWS AppSync to access the tables created by this template.
+            Path: /appsync/
+            PolicyDocument:
+                Version: 2012-10-17
+                Statement:
+                    - Effect: Allow
+                      Action:
+                        - dynamodb:GetItem
+                        - dynamodb:PutItem
+                        - dynamodb:DeleteItem
+                        - dynamodb:UpdateItem
+                        - dynamodb:Query
+                        - dynamodb:Scan
+                        - dynamodb:BatchGetItem
+                        - dynamodb:BatchWriteItem
+                      Resource: !Join [ "", [ !GetAtt DynamoDBTable.Arn, "*" ] ]
+    
+    # API                
+    AppSyncApi:
+        Type: "AWS::AppSync::GraphQLApi"
+        Description: "The GraphQL API for Protein Annotation App"
+        Properties:
+            AuthenticationType: "API_KEY"
+            Name: !Sub ${AWS::StackName}-AppSyncApi
+                
+    AppSyncApiKey:
+        Type: AWS::AppSync::ApiKey
+        Properties: 
+            ApiId: !GetAtt AppSyncApi.ApiId
+              
+    AppSyncSchema:
+        Type: "AWS::AppSync::GraphQLSchema"
+        Properties:
+            ApiId: !GetAtt AppSyncApi.ApiId
+            Definition: |
+                
+                type ProteinAnnotationTable {
+                	itemID: String!
+                	userID: String
+                	familyID: String
+                	familyAccession: String
+                	confidence: String
+                	description: String
+                	inputSequence: String
+                }
+                
+                type ProteinAnnotationTableConnection {
+                	items: [ProteinAnnotationTable]
+                	nextToken: String
+                }
+                
+                input TableStringFilterInput {
+                	ne: String
+                	eq: String
+                	le: String
+                	lt: String
+                	ge: String
+                	gt: String
+                	contains: String
+                	notContains: String
+                	between: [String]
+                	beginsWith: String
+                }
+                
+                input TableProteinAnnotationTableFilterInput {
+                	itemID: TableStringFilterInput
+                	userID: TableStringFilterInput
+                	familyID: TableStringFilterInput
+                	familyAccession: TableStringFilterInput
+                	confidence: TableStringFilterInput
+                	description: TableStringFilterInput
+                	inputSequence: TableStringFilterInput
+                }
+                
+                type Query {
+                	getProteinAnnotationTable(itemID: String!): ProteinAnnotationTable
+                	listProteinAnnotationTables(filter: TableProteinAnnotationTableFilterInput, limit: Int, nextToken: String): ProteinAnnotationTableConnection
+                }
+                
+    AppSyncTableDataSource:
+        Type: "AWS::AppSync::DataSource"
+        Properties:
+            ApiId: !GetAtt AppSyncApi.ApiId
+            Name: !Sub ${AWS::StackName}_data_store
+            Description: "The Amazon DynamoDB Table for AppSync Data Source"
+            Type: AMAZON_DYNAMODB
+            ServiceRoleArn: !GetAtt DynamoDBRole.Arn
+            DynamoDBConfig:
+                TableName: !Ref DynamoDBTable
+                AwsRegion: !Sub ${AWS::Region}
+                
+    AppSyncAllPredictionsQueryResolver:
+        Type: "AWS::AppSync::Resolver"
+        DependsOn: AppSyncSchema
+        Properties:
+            ApiId: !GetAtt AppSyncApi.ApiId
+            TypeName: Query
+            FieldName: listProteinAnnotationTables
+            DataSourceName: !GetAtt AppSyncTableDataSource.Name
+            RequestMappingTemplate: |
+                    
+                    #set( $limit = $util.defaultIfNull($context.args.limit, 100) )
+                    #set( $ListRequest = {
+                      "version": "2018-05-29",
+                      "limit": $limit
+                    } )
+                    #if( $context.args.nextToken )
+                      #set( $ListRequest.nextToken = $context.args.nextToken )
+                    #end
+                    #if( $context.args.filter )
+                      #set( $ListRequest.filter = $util.parseJson("$util.transform.toDynamoDBFilterExpression($ctx.args.filter)") )
+                    #end
+                    #if( !$util.isNull($modelQueryExpression)
+                                            && !$util.isNullOrEmpty($modelQueryExpression.expression) )
+                      $util.qr($ListRequest.put("operation", "Query"))
+                      $util.qr($ListRequest.put("query", $modelQueryExpression))
+                      #if( !$util.isNull($ctx.args.sortDirection) && $ctx.args.sortDirection == "DESC" )
+                        #set( $ListRequest.scanIndexForward = false )
+                      #else
+                        #set( $ListRequest.scanIndexForward = true )
+                      #end
+                    #else
+                      $util.qr($ListRequest.put("operation", "Scan"))
+                    #end
+                    $util.toJson($ListRequest)
+            ResponseMappingTemplate: |
+                    
+                    #if( $ctx.error )
+                    $util.error($ctx.error.message, $ctx.error.type)
+                    #else
+                    $util.toJson($ctx.result)
+                    #end
+                
+    AppSyncGetPredictionQueryResolver:
+        Type: "AWS::AppSync::Resolver"
+        DependsOn: AppSyncSchema
+        Properties:
+            ApiId: !GetAtt AppSyncApi.ApiId
+            TypeName: Query
+            FieldName: getProteinAnnotationTable
+            DataSourceName: !GetAtt AppSyncTableDataSource.Name
+            RequestMappingTemplate: |
+
+                {
+        
+                  "version": "2012-02-28",
+        
+                  "operation": "GetItem",
+        
+                  "key": {
+        
+                    "itemID": $util.dynamodb.toDynamoDBJson($ctx.args.itemID)
+        
+                  }
+        
+                }
+
+            ResponseMappingTemplate: "$util.toJson($ctx.result)"
+    
+    # Lambda    
+    LambdaRole:
+        Type: AWS::IAM::Role
+        Properties:
+            RoleName: !Sub ${AWS::StackName}-LambdaRole
+            AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                    - Effect: Allow
+                      Principal:
+                        Service: lambda.amazonaws.com
+                      Action: sts:AssumeRole
+                      
+    LambdaRolePolicyForDynamoDBTable:
+        Type: AWS::IAM::ManagedPolicy
+        Properties:
+            ManagedPolicyName: !Sub ${AWS::StackName}-LambdaRolePolicyForDynamoDBTable
+            PolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                    - Effect: Allow
+                      Action:
+                        - "dynamodb:Get*"
+                        - "dynamodb:Query"
+                        - "dynamodb:Scan"
+                        - "dynamodb:Delete*"
+                        - "dynamodb:Update*"
+                        - "dynamodb:PutItem"
+                      Resource:
+                        - !GetAtt DynamoDBTable.Arn
+            Roles:
+                - !Ref 'LambdaRole'
+    
+    LambdaRolePolicyForS3:
+        Type: AWS::IAM::ManagedPolicy
+        Properties:
+            ManagedPolicyName: !Sub ${AWS::StackName}-LambdaRolePolicyForS3
+            PolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                    - Effect: Allow
+                      Action:
+                        - "s3:GetObject"
+                        - "logs:CreateLogStream"
+                        - "logs:CreateLogGroup"
+                        - "logs:PutLogEvents"
+                      Resource:
+                        - !Join [ "/", [ !GetAtt UserUploadsBucket.Arn, "*" ] ]
+                        - "arn:aws:logs:*:*:*"
+            Roles:
+                - !Ref 'LambdaRole'
+                
+    LambdaRolePolicyForInferenceEndpoint:
+        Type: AWS::IAM::ManagedPolicy
+        Properties:
+            ManagedPolicyName: !Sub ${AWS::StackName}-LambdaRolePolicyForInferenceEndpoint
+            PolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                    - Effect: Allow
+                      Action:
+                        - "sagemaker:InvokeEndpoint"
+                      Resource:
+                        - "*"
+            Roles:
+                - !Ref 'LambdaRole'
+                
+    Lambda:
+        Type: AWS::Lambda::Function
+        Properties:
+            FunctionName: !Sub ${AWS::StackName}-model-invocation
+            Code:
+                ZipFile: |
+                    import urllib
+                    import boto3
+                    import os
+                    import json
+                    import re
+                    import time
+                    
+                    s3 = boto3.resource('s3')
+                    client = boto3.client("s3")
+                    
+                    ENDPOINT_NAME = os.environ['ENDPOINT_NAME']
+                    runtime= boto3.client('runtime.sagemaker')
+                    
+                    dynamodb = boto3.client('dynamodb')
+                    dynamodb_table_name = os.environ['DYNAMODB_TABLE_NAME']
+                    
+                    def lambda_handler(event, context):
+                        
+                        source_bucket = event['Records'][0]['s3']['bucket']['name']
+                        object_key = urllib.parse.unquote_plus(event['Records'][0]['s3']['object']['key'])
+                        
+                        obj = s3.Object(source_bucket,object_key)
+                        payloads = obj.get()['Body'].read().decode('utf-8')
+                        payloads = payloads.split("\r\n")
+                        
+                        responses = []
+                        for payload in payloads:
+                            if (payload != ''):
+                                response = runtime.invoke_endpoint(EndpointName=ENDPOINT_NAME, 
+                                                                   ContentType= 'text/csv', 
+                                                                   Body=payload + "\r\n")
+                                
+                                response = json.loads(response['Body'].read().decode())
+                                
+                                # Remove ' OR " OR ( OR ) OR \n from response 
+                                response = re.sub("\'|\"|\(|\)|\n", '', response).split(", ")
+                                
+                                # Add payload to response
+                                response.append(payload)
+                                
+                                responses.append(tuple(response))
+                            
+                        # To generate IDs for predictions
+                        generated_id = None
+                        increment = 0
+                        
+                        # Get user ID from event
+                        userID = event["Records"][-1]['s3']["object"]["key"].split('/')[-2]
+                        
+                        for family_accession, family_id, confidence, payload in responses:
+                            timestamp = time.strftime('-%Y-%m-%d-%H-%M-%S', time.gmtime())
+                            generated_id = str(increment) + '-ep-' + timestamp
+                            
+                            item = {
+                                'familyAccession':{'S':family_accession},
+                                'description':{'S':"description"},
+                                'confidence':{'S':confidence},
+                                'itemID':{'S':generated_id},
+                                'familyID':{'S':family_id},
+                                'userID':{'S':userID},
+                                'inputSequence':{'S':payload},
+                            }
+                            
+                            dynamodb.put_item(TableName=dynamodb_table_name, Item=item)
+                            increment += 1
+                            
+                        print(userID)
+                        
+            Environment:
+                Variables:
+                    DYNAMODB_TABLE_NAME: !Ref DynamoDBTable
+                    ENDPOINT_NAME: !Ref InferenceEndpointName
+            Handler: index.lambda_handler
+            Role: !GetAtt LambdaRole.Arn
+            Runtime: "python3.8"
+            
+    # Inference
+    InferenceRole:
+        Type: AWS::IAM::Role
+        Properties:
+            RoleName: !Sub ${AWS::StackName}-InferenceRole
+            ManagedPolicyArns:
+                - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryFullAccess
+                - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+            AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                    - Effect: Allow
+                      Principal:
+                        Service: sagemaker.amazonaws.com
+                      Action: sts:AssumeRole
+                      
+    InferenceRolePolicy:
+        Type: AWS::IAM::ManagedPolicy
+        Properties:
+            ManagedPolicyName: !Sub ${AWS::StackName}-ProteinAnnotationInferencePolicy
+            PolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                    - Effect: Allow
+                      Action:
+                        - "s3:GetObject"
+                        - "s3:PutObject"
+                        - "s3:DeleteObject"
+                        - "s3:ListBucket"
+                      Resource:
+                        - "arn:aws:s3:::*"
+            Roles:
+                - !Ref 'InferenceRole'
+            
+    InferenceModel:
+        Type: AWS::SageMaker::Model
+        Properties:
+            PrimaryContainer:
+                Image: !Ref DockerImage
+                ModelDataUrl: !Ref ModelArtifacts
+            ExecutionRoleArn: !GetAtt InferenceRole.Arn
+            ModelName: !Sub ${AWS::StackName}-InferenceModel
+    
+    InferenceEndpointConfig:
+        Type: AWS::SageMaker::EndpointConfig
+        Properties:
+            EndpointConfigName: !Sub ${AWS::StackName}-EndpointConfig
+            ProductionVariants:
+                - InitialInstanceCount: 1
+                  InitialVariantWeight: 1.0
+                  InstanceType: "ml.m5.4xlarge"
+                  ModelName: !Sub ${AWS::StackName}-InferenceModel
+                  VariantName: !Sub ${AWS::StackName}-EndpointConfig-Variant
+        DependsOn:
+            - InferenceModel
+                  
+    InferenceEndpoint:
+        Type: AWS::SageMaker::Endpoint
+        Properties:
+            EndpointConfigName: !Sub ${AWS::StackName}-EndpointConfig
+            EndpointName: !Ref InferenceEndpointName
+        DependsOn:
+            - InferenceEndpointConfig
+            
+Outputs:
+
+    CognitoIdentityPoolId:
+        Description: The Pool ID of Cognito Identity Pool
+        Value: !Ref IdentityPool
+        
+    CognitoUserPoolId:
+        Description: The Pool ID of the Cognito User Pool
+        Value: !Ref UserPool
+
+    CognitoUserPoolClientId:
+        Description: The Client ID for AWS AppSync Auth
+        Value: !Ref UserPoolClient
+
+    DynamoDBTableName:
+        Description: The name of the DynamoDB Table
+        Value: !Ref DynamoDBTable
+
+    GraphQLApiEndpoint:
+        Description: The URL to the GraphQL Endpoint
+        Value: !GetAtt AppSyncApi.GraphQLUrl
+
+    GraphQLApiId:
+        Description: The API ID of the GraphQL API
+        Value: !GetAtt AppSyncApi.ApiId
+        
+    GraphQLApiKey:
+        Description: The API Key of the GraphQL API
+        Value: !GetAtt AppSyncApiKey.ApiKey
