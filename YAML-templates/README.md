@@ -11,7 +11,6 @@ service-integration-template.yaml template integrates deployed model with other 
 6.	Finally, click on “Save changes” button <br>
 <br>
 Second, go to “Permissions”, “Cross-origin resource sharing (CORS)”, click on “Edit” button, and then past the following: <br>
-```yaml
 [
     { 
         "AllowedHeaders": [
@@ -28,7 +27,7 @@ Second, go to “Permissions”, “Cross-origin resource sharing (CORS)”, cli
         "ExposeHeaders": [] 
     }
 ]
-```
+
 Also, the template does not host the web application on AWS Amplify. As a result, you need to configure your AWS Cloud9 environment. The details can be found in protein-annotation/front-end/ReadMe.txt.
 
 
