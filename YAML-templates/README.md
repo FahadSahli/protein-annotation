@@ -11,7 +11,7 @@ service-integration-template.yaml template integrates deployed model with other 
 6.	Finally, click on “Save changes” button <br>
 <br>
 Second, go to “Permissions”, “Cross-origin resource sharing (CORS)”, click on “Edit” button, and then past the following: <br>
-```
+```yaml
 [
     { 
         "AllowedHeaders": [
