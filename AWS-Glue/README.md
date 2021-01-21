@@ -2,7 +2,7 @@
 
 This folder includes Pfam data processing code. The code is presented as an IPython notebook. The notebook assumes you have an access to an AWS Glue database. The database should have three tables which include metadata for train, validation, and test data. 
 
-The notebook also assumes that [`freq_df.csv`](./freq_df.csv) and [`dict_class.csv`](./dict_class.csv) files are stored in Amazon S3. [`freq_df.csv`](./freq_df.csv) includes frequencies of sequence letters, and [`dict_class.csv`](./dict_class.csv) has all unique family accessions. The files are used to convert letters and accessions to their corresponding IDs. For more information, please refer to the blog.
+The notebook also assumes that [`freq_df.csv`](./freq_df.csv) and [`dict_class.csv`](./dict_class.csv) files are stored in Amazon S3. [`freq_df.csv`](./freq_df.csv) includes frequencies of sequence letters, and [`dict_class.csv`](./dict_class.csv) has all unique family accessions. The files are used to convert letters and accessions to their corresponding IDs. For more information, please refer to [`the blog`](https://fahadsahli.com/leveraging-amazon-web-services-to-advance-protein-annotation/).
 
 To use the notebook, you need to have crawlers connected to the data, and you also need to create a notebook instance from AWS Glue console. To create a crawler for each data file (e.g., train, validation, or test), do the following:
 1. Create a crawler
@@ -21,15 +21,10 @@ To use the notebook, you need to have crawlers connected to the data, and you al
 
 Regarding the notebook instance, the creation process is as the following:
 1. Choose a name for the notebook
-2. Choose the development endpoint created by the AWS CloudFormation stack
+2. Choose the development endpoint created by [`the AWS CloudFormation stack`](https://github.com/FahadSahli/protein-annotation/blob/main/YAML-templates/training-template.yaml) 
 3. Choose the IAM role which is the one of the development endpoint
 4. Choose the VPC created by the AWS CloudFormation stack
 5. Choose the public subnet of the VPC
 6. Choose the security group which is the one of the development endpoint
 7. Review your configurations, then click "Create notebook"
-
-
-TO DO:
-Add the link to the blog
-Add link to AWS CloudFormation
 
