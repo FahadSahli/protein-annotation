@@ -1,10 +1,8 @@
-# Build an image that can do training and inference in SageMaker
-# This is a Python 2 image that uses the nginx, gunicorn, flask stack
+# Build an image that can do inference in SageMaker
+# This is a Python 3 image that uses the nginx, gunicorn, flask stack
 # for serving inferences in a stable way.
 
 FROM ubuntu:20.04
-
-MAINTAINER Amazon AI <sage-learner@amazon.com>
 
 ARG PYTHON_VERSION_TAG=3.8.3
 ARG LINK_PYTHON_TO_PYTHON3=1
